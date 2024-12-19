@@ -81,23 +81,17 @@ func main() {
 }
 
 func openDB(cfg config, logger *slog.Logger) (*pgx.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	connConfig, err := pgx.ParseConfig(cfg.db.dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	conn, err := pgx.ConnectConfig(context.Background(), connConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err = conn.Ping(ctx)
+	err = conn.Ping(context.Background())
 	if err != nil {
 		conn.Close(context.Background())
 		return nil, err
