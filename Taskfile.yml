@@ -8,5 +8,5 @@ vars:
 tasks:
   default:
     cmds:
-      - go run ./cmd/api/
+      - air
     silent: true
