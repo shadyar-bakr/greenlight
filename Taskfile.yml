@@ -2,11 +2,81 @@
 
 version: '3'
 
+# Global variables
 vars:
-  GREETING: Hello, World!
+  BINARY_NAME: greenlight
+  MAIN_PATH: ./cmd/api
+  MIGRATION_PATH: ./migrations
+  TERN_CONFIG: ./migrations/tern.conf
+  DB_NAME: greenlight
+  DB_USER: greenlight
 
 tasks:
+  # ==========================================
+  # Development Tasks
+  # ==========================================
+
   default:
+    desc: Run the application with air for hot reload
+    deps: [migrate]
     cmds:
       - air
     silent: true
+
+  build:
+    desc: Build the application
+    cmds:
+      - go build -o bin/{{.BINARY_NAME}}.exe {{.MAIN_PATH}}
+
+  clean:
+    desc: Clean up binary files
+    cmds:
+      - nu -c "rm --recursive --force bin/"
+      - nu -c "rm --recursive --force tmp/"
+
+  # ==========================================
+  # Database Tasks
+  # ==========================================
+
+  db:reset:
+    desc: Drop and recreate database with fresh migrations
+    cmds:
+      - psql -U {{.DB_USER}} -d postgres -c 'DROP DATABASE IF EXISTS {{.DB_NAME}}'
+      - psql -U {{.DB_USER}} -d postgres -c 'CREATE DATABASE {{.DB_NAME}}'
+      - task: migrate
+
+  migrate:
+    desc: Run database migrations
+    cmds:
+      - tern migrate -c {{.TERN_CONFIG}} -m {{.MIGRATION_PATH}}
+
+  migrate:status:
+    desc: Show migration status
+    cmds:
+      - tern status -c {{.TERN_CONFIG}} -m {{.MIGRATION_PATH}}
+
+  migrate:rollback:
+    desc: Rollback last migration
+    cmds:
+      - tern migrate -c {{.TERN_CONFIG}} -m {{.MIGRATION_PATH}} -d -1
+
+  migrate:new:
+    desc: Create a new migration file
+    cmds:
+      - echo "Creating new migration {{.CLI_ARGS}}"
+      - tern new -c {{.TERN_CONFIG}} -m {{.MIGRATION_PATH}} "{{.CLI_ARGS}}"
+
+  # ==========================================
+  # Testing and Quality Tasks
+  # ==========================================
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  lint:
+    desc: Run linters
+    cmds:
+      - go vet ./...
+      - staticcheck ./...
