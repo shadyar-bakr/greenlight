@@ -5,14 +5,14 @@ meta {
 }
 
 get {
-  url: {{BASE}}movies?genres=adventure
+  url: {{BASE}}movies?title=black+panther
   body: none
   auth: none
 }
 
 params:query {
-  genres: adventure
-  ~title: black+panther
+  title: black panther
+  ~genres: adventure
   ~page: 1
   ~page_size: 5
   ~sort: year
