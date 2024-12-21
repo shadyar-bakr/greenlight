@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -34,14 +35,6 @@ func ValidateMovie(v *validator.Validator, movie *Movie) {
 	v.Check(len(movie.Genres) >= 1, "genres", "must contain at least 1 genre")
 	v.Check(len(movie.Genres) <= 5, "genres", "must not contain more than 5 genres")
 	v.Check(validator.Unique(movie.Genres), "genres", "must not contain duplicate values")
-}
-
-type Filters struct {
-	Title    string
-	Genres   []string
-	Page     int
-	PageSize int
-	SortBy   string
 }
 
 type MovieModel struct {
@@ -149,26 +142,46 @@ func (m MovieModel) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (m MovieModel) GetAll(ctx context.Context, filters Filters) ([]*Movie, Metadata, error) {
-	query := `
+func (m MovieModel) GetAll(ctx context.Context, title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
+	// First, validate the sort column and direction
+	sortColumn := "id"     // default sort column
+	sortDirection := "ASC" // default sort direction
+
+	// Remove the '-' prefix if present and set descending direction
+	if filters.SortBy != "" {
+		if filters.SortBy[0] == '-' {
+			sortColumn = filters.SortBy[1:]
+			sortDirection = "DESC"
+		} else {
+			sortColumn = filters.SortBy
+		}
+	}
+
+	// Validate sort column against allowed values
+	validColumns := map[string]bool{
+		"id":      true,
+		"title":   true,
+		"year":    true,
+		"runtime": true,
+	}
+
+	if !validColumns[sortColumn] {
+		sortColumn = "id" // fallback to default if invalid
+	}
+
+	// Use parameterized query with dynamic sort column
+	query := fmt.Sprintf(`
 		SELECT COUNT(*) OVER(), id, created_at, title, year, runtime, genres, version
 		FROM movies
 		WHERE (LOWER(title) LIKE LOWER($1) OR $1 = '')
-		AND (genres && $2 OR $2 = '{}')
-		ORDER BY CASE
-			WHEN $3 = 'title' THEN title
-			WHEN $3 = 'year' THEN year::text
-			ELSE id::text
-		END
-		LIMIT $4 OFFSET $5`
-
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+		AND (genres @> $2 OR $2 = '{}')
+		ORDER BY %s %s, id ASC
+		LIMIT $3 OFFSET $4`,
+		sortColumn, sortDirection)
 
 	args := []any{
-		"%" + filters.Title + "%",
-		filters.Genres,
-		filters.SortBy,
+		"%" + title + "%",
+		genres,
 		filters.PageSize,
 		(filters.Page - 1) * filters.PageSize,
 	}
@@ -184,6 +197,7 @@ func (m MovieModel) GetAll(ctx context.Context, filters Filters) ([]*Movie, Meta
 
 	for rows.Next() {
 		var movie Movie
+
 		err := rows.Scan(
 			&totalRecords,
 			&movie.ID,
@@ -197,6 +211,7 @@ func (m MovieModel) GetAll(ctx context.Context, filters Filters) ([]*Movie, Meta
 		if err != nil {
 			return nil, Metadata{}, err
 		}
+
 		movies = append(movies, &movie)
 	}
 
@@ -206,26 +221,4 @@ func (m MovieModel) GetAll(ctx context.Context, filters Filters) ([]*Movie, Meta
 
 	metadata := calculateMetadata(totalRecords, filters.Page, filters.PageSize)
 	return movies, metadata, nil
-}
-
-type Metadata struct {
-	CurrentPage  int `json:"current_page,omitempty"`
-	PageSize     int `json:"page_size,omitempty"`
-	FirstPage    int `json:"first_page,omitempty"`
-	LastPage     int `json:"last_page,omitempty"`
-	TotalRecords int `json:"total_records,omitempty"`
-}
-
-func calculateMetadata(totalRecords, page, pageSize int) Metadata {
-	if totalRecords == 0 {
-		return Metadata{}
-	}
-
-	return Metadata{
-		CurrentPage:  page,
-		PageSize:     pageSize,
-		FirstPage:    1,
-		LastPage:     (totalRecords + pageSize - 1) / pageSize,
-		TotalRecords: totalRecords,
-	}
 }

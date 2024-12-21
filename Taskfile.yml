@@ -64,7 +64,8 @@ tasks:
     desc: Create a new migration file
     cmds:
       - echo "Creating new migration {{.CLI_ARGS}}"
-      - tern new -c {{.TERN_CONFIG}} -m {{.MIGRATION_PATH}} "{{.CLI_ARGS}}"
+      - cmd: tern --migrations {{.MIGRATION_PATH}} new "{{.CLI_ARGS}}"
+    silent: true
 
   # ==========================================
   # Testing and Quality Tasks

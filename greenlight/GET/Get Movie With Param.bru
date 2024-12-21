@@ -1,0 +1,19 @@
+meta {
+  name: Get Movie With Param
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE}}movies?genres=adventure
+  body: none
+  auth: none
+}
+
+params:query {
+  genres: adventure
+  ~title: black+panther
+  ~page: 1
+  ~page_size: 5
+  ~sort: year
+}

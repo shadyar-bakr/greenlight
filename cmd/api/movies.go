@@ -209,3 +209,58 @@ func (app *application) deleteMovieHandler(w http.ResponseWriter, r *http.Reques
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (app *application) listMoviesHandler(w http.ResponseWriter, r *http.Request) {
+	// Accept only GET requests
+	if r.Method != http.MethodGet {
+		app.methodNotAllowedResponse(w, r)
+		return
+	}
+
+	var input struct {
+		Title  string
+		Genres []string
+		data.Filters
+	}
+
+	// Get the url.Values map from the query string
+	v := validator.New()
+	qs := r.URL.Query()
+
+	// Extract title search parameter
+	input.Title = app.readString(qs, "title", "")
+
+	// Extract genres search parameter
+	input.Genres = app.readCSV(qs, "genres", []string{})
+
+	// Extract pagination parameters with defaults
+	input.Filters.Page = app.readInt(qs, "page", 1, v)
+	input.Filters.PageSize = app.readInt(qs, "page_size", 20, v)
+
+	// Extract sort parameter with default
+	input.Filters.SortBy = app.readString(qs, "sort", "id")
+	input.Filters.SortSafeList = []string{"id", "title", "year", "runtime", "-id", "-title", "-year", "-runtime"}
+
+	// Validate filters
+	if data.ValidateFilters(v, input.Filters); !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	// Get the movies from the database
+	movies, metadata, err := app.models.Movies.GetAll(ctx, input.Title, input.Genres, input.Filters)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	// Send a JSON response containing the movie data
+	err = app.writeJSON(w, http.StatusOK, envelope{"movies": movies, "metadata": metadata}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+}
