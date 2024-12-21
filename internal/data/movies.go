@@ -143,47 +143,20 @@ func (m MovieModel) Delete(ctx context.Context, id int64) error {
 }
 
 func (m MovieModel) GetAll(ctx context.Context, title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
-	// First, validate the sort column and direction
-	sortColumn := "id"     // default sort column
-	sortDirection := "ASC" // default sort direction
-
-	// Remove the '-' prefix if present and set descending direction
-	if filters.SortBy != "" {
-		if filters.SortBy[0] == '-' {
-			sortColumn = filters.SortBy[1:]
-			sortDirection = "DESC"
-		} else {
-			sortColumn = filters.SortBy
-		}
-	}
-
-	// Validate sort column against allowed values
-	validColumns := map[string]bool{
-		"id":      true,
-		"title":   true,
-		"year":    true,
-		"runtime": true,
-	}
-
-	if !validColumns[sortColumn] {
-		sortColumn = "id" // fallback to default if invalid
-	}
-
-	// Use parameterized query with dynamic sort column
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) OVER(), id, created_at, title, year, runtime, genres, version
-		FROM movies
-		WHERE (LOWER(title) LIKE LOWER($1) OR $1 = '')
-		AND (genres @> $2 OR $2 = '{}')
-		ORDER BY %s %s, id ASC
-		LIMIT $3 OFFSET $4`,
-		sortColumn, sortDirection)
+			FROM movies
+			WHERE (LOWER(title) LIKE LOWER($1) OR $1 = '')
+			AND (genres @> $2 OR $2 = '{}')
+			ORDER BY %s %s, id ASC
+			LIMIT $3 OFFSET $4`,
+		filters.GetSortColumn(), filters.GetSortDirection())
 
 	args := []any{
 		"%" + title + "%",
 		genres,
-		filters.PageSize,
-		(filters.Page - 1) * filters.PageSize,
+		filters.Getlimit(),
+		filters.Getoffset(),
 	}
 
 	rows, err := m.DB.Query(ctx, query, args...)
