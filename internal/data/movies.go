@@ -48,7 +48,7 @@ type MovieModel struct {
 	DB *pgx.Conn
 }
 
-func (m MovieModel) Insert(movie *Movie) error {
+func (m MovieModel) Insert(ctx context.Context, movie *Movie) error {
 	query := `
 		INSERT INTO movies (title, year, runtime, genres)
 		VALUES ($1, $2, $3, $4)
@@ -56,24 +56,15 @@ func (m MovieModel) Insert(movie *Movie) error {
 
 	args := []any{movie.Title, movie.Year, movie.Runtime, movie.Genres}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	tx, err := m.DB.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	err = tx.QueryRow(ctx, query, args...).Scan(&movie.ID, &movie.CreatedAt, &movie.Version)
+	err := m.DB.QueryRow(ctx, query, args...).Scan(&movie.ID, &movie.CreatedAt, &movie.Version)
 	if err != nil {
 		return err
 	}
 
-	return tx.Commit(ctx)
+	return nil
 }
 
-func (m MovieModel) Get(id int64) (*Movie, error) {
+func (m MovieModel) Get(ctx context.Context, id int64) (*Movie, error) {
 	if id < 1 {
 		return nil, errors.New("invalid id")
 	}
@@ -84,8 +75,6 @@ func (m MovieModel) Get(id int64) (*Movie, error) {
 		WHERE id = $1`
 
 	var movie Movie
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 
 	err := m.DB.QueryRow(ctx, query, id).Scan(
 		&movie.ID,
@@ -109,7 +98,7 @@ func (m MovieModel) Get(id int64) (*Movie, error) {
 	return &movie, nil
 }
 
-func (m MovieModel) Update(movie *Movie) error {
+func (m MovieModel) Update(ctx context.Context, movie *Movie) error {
 	query := `
 		UPDATE movies
 		SET title = $1, year = $2, runtime = $3, genres = $4, version = version + 1
@@ -125,16 +114,7 @@ func (m MovieModel) Update(movie *Movie) error {
 		movie.Version,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	tx, err := m.DB.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	err = tx.QueryRow(ctx, query, args...).Scan(&movie.Version)
+	err := m.DB.QueryRow(ctx, query, args...).Scan(&movie.Version)
 	if err != nil {
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -144,37 +124,32 @@ func (m MovieModel) Update(movie *Movie) error {
 		}
 	}
 
-	return tx.Commit(ctx)
+	return nil
 }
 
-func (m MovieModel) Delete(id int64) error {
+func (m MovieModel) Delete(ctx context.Context, id int64) error {
 	if id < 1 {
 		return errors.New("invalid id")
 	}
 
 	query := `
 		DELETE FROM movies
-		WHERE id = $1
-		RETURNING id`
+		WHERE id = $1`
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	result := m.DB.QueryRow(ctx, query, id)
-	err := result.Scan(&id)
+	result, err := m.DB.Exec(ctx, query, id)
 	if err != nil {
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-			return ErrRecordNotFound
-		default:
-			return err
-		}
+		return err
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return ErrRecordNotFound
 	}
 
 	return nil
 }
 
-func (m MovieModel) GetAll(filters Filters) ([]*Movie, Metadata, error) {
+func (m MovieModel) GetAll(ctx context.Context, filters Filters) ([]*Movie, Metadata, error) {
 	query := `
 		SELECT COUNT(*) OVER(), id, created_at, title, year, runtime, genres, version
 		FROM movies
@@ -187,7 +162,7 @@ func (m MovieModel) GetAll(filters Filters) ([]*Movie, Metadata, error) {
 		END
 		LIMIT $4 OFFSET $5`
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	args := []any{
