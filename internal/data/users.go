@@ -170,3 +170,35 @@ func (m UserModel) Update(ctx context.Context, user *User) error {
 
 	return nil
 }
+
+func (m UserModel) GetForToken(ctx context.Context, scope string, tokenPlaintext string) (*User, error) {
+	query := `
+		SELECT users.id, users.created_at, users.name, users.email, users.password_hash, users.activated, users.version
+		FROM users
+		INNER JOIN tokens ON users.id = tokens.user_id
+		WHERE tokens.hash = $1 AND tokens.scope = $2 AND tokens.expiry > now()
+	`
+
+	var user User
+
+	err := m.DB.QueryRow(ctx, query, tokenPlaintext, scope).Scan(
+		&user.ID,
+		&user.CreatedAt,
+		&user.Name,
+		&user.Email,
+		&user.Password.Hash,
+		&user.Activated,
+		&user.Version,
+	)
+
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil, ErrRecordNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return &user, nil
+}
