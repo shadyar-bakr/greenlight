@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"crypto/sha256"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/shadyar-bakr/greenlight/internal/validator"
 	"golang.org/x/crypto/bcrypt"
@@ -172,6 +174,9 @@ func (m UserModel) Update(ctx context.Context, user *User) error {
 }
 
 func (m UserModel) GetForToken(ctx context.Context, scope string, tokenPlaintext string) (*User, error) {
+	// Generate the hash of the plaintext token
+	tokenHash := sha256.Sum256([]byte(tokenPlaintext))
+
 	query := `
 		SELECT users.id, users.created_at, users.name, users.email, users.password_hash, users.activated, users.version
 		FROM users
@@ -181,7 +186,8 @@ func (m UserModel) GetForToken(ctx context.Context, scope string, tokenPlaintext
 
 	var user User
 
-	err := m.DB.QueryRow(ctx, query, tokenPlaintext, scope).Scan(
+	// Use the hashed token value in the query
+	err := m.DB.QueryRow(ctx, query, tokenHash[:], scope).Scan(
 		&user.ID,
 		&user.CreatedAt,
 		&user.Name,
@@ -201,4 +207,10 @@ func (m UserModel) GetForToken(ctx context.Context, scope string, tokenPlaintext
 	}
 
 	return &user, nil
+}
+
+var AnonymousUser = &User{}
+
+func (u *User) IsAnonymous() bool {
+	return u == AnonymousUser
 }

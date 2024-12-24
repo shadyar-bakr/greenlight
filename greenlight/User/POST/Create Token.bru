@@ -1,0 +1,18 @@
+meta {
+  name: Create Token
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE}}tokens/authentication
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "alice@example.com",
+    "password": "pa55word"
+  }
+}
