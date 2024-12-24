@@ -4,7 +4,6 @@ import (
 	"errors"
 	"expvar"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/shadyar-bakr/greenlight/internal/data"
 	"github.com/shadyar-bakr/greenlight/internal/validator"
+	"github.com/tomasen/realip"
 	"golang.org/x/time/rate"
 )
 
@@ -62,9 +62,9 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 			return
 		}
 
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			app.serverErrorResponse(w, r, err)
+		ip := realip.FromRequest(r)
+		if ip == "" {
+			app.serverErrorResponse(w, r, errors.New("invalid ip"))
 			return
 		}
 
