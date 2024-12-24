@@ -3,7 +3,7 @@ package data
 import (
 	"errors"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -18,11 +18,11 @@ type Models struct {
 	Permissions PermissionsModel
 }
 
-func NewModels(db *pgx.Conn) Models {
+func NewModels(pool *pgxpool.Pool) Models {
 	return Models{
-		Movies:      MovieModel{DB: db},
-		Users:       UserModel{DB: db},
-		Tokens:      TokenModel{DB: db},
-		Permissions: PermissionsModel{DB: db},
+		Movies:      MovieModel{Pool: pool},
+		Users:       UserModel{Pool: pool},
+		Tokens:      TokenModel{Pool: pool},
+		Permissions: PermissionsModel{Pool: pool},
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shadyar-bakr/greenlight/internal/validator"
 )
 
@@ -38,7 +39,7 @@ func ValidateMovie(v *validator.Validator, movie *Movie) {
 }
 
 type MovieModel struct {
-	DB *pgx.Conn
+	Pool *pgxpool.Pool
 }
 
 func (m MovieModel) Insert(ctx context.Context, movie *Movie) error {
@@ -49,7 +50,7 @@ func (m MovieModel) Insert(ctx context.Context, movie *Movie) error {
 
 	args := []any{movie.Title, movie.Year, movie.Runtime, movie.Genres}
 
-	err := m.DB.QueryRow(ctx, query, args...).Scan(&movie.ID, &movie.CreatedAt, &movie.Version)
+	err := m.Pool.QueryRow(ctx, query, args...).Scan(&movie.ID, &movie.CreatedAt, &movie.Version)
 	if err != nil {
 		return err
 	}
@@ -69,7 +70,7 @@ func (m MovieModel) Get(ctx context.Context, id int64) (*Movie, error) {
 
 	var movie Movie
 
-	err := m.DB.QueryRow(ctx, query, id).Scan(
+	err := m.Pool.QueryRow(ctx, query, id).Scan(
 		&movie.ID,
 		&movie.CreatedAt,
 		&movie.Title,
@@ -107,7 +108,7 @@ func (m MovieModel) Update(ctx context.Context, movie *Movie) error {
 		movie.Version,
 	}
 
-	err := m.DB.QueryRow(ctx, query, args...).Scan(&movie.Version)
+	err := m.Pool.QueryRow(ctx, query, args...).Scan(&movie.Version)
 	if err != nil {
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -129,7 +130,7 @@ func (m MovieModel) Delete(ctx context.Context, id int64) error {
 		DELETE FROM movies
 		WHERE id = $1`
 
-	result, err := m.DB.Exec(ctx, query, id)
+	result, err := m.Pool.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}
@@ -159,7 +160,7 @@ func (m MovieModel) GetAll(ctx context.Context, title string, genres []string, f
 		filters.Getoffset(),
 	}
 
-	rows, err := m.DB.Query(ctx, query, args...)
+	rows, err := m.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, Metadata{}, err
 	}

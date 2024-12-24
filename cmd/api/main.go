@@ -2,15 +2,17 @@ package main
 
 import (
 	"context"
+	"expvar"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/shadyar-bakr/greenlight/internal/data"
 	"github.com/shadyar-bakr/greenlight/internal/mailer"
@@ -90,7 +92,7 @@ func main() {
 		logger.Error("unable to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close(context.Background())
+	defer db.Close()
 
 	mailer, err := mailer.New(mailer.SMTPConfig{
 		Host:     cfg.smtp.host,
@@ -103,6 +105,27 @@ func main() {
 		logger.Error("unable to create mailer", "error", err)
 		os.Exit(1)
 	}
+
+	expvar.NewString("version").Set(version)
+
+	// Publish the number of active goroutines.
+	expvar.Publish("goroutines", expvar.Func(func() any {
+		return runtime.NumGoroutine()
+	}))
+
+	// Publish the database connection pool statistics.
+	expvar.Publish("database", expvar.Func(func() any {
+		return map[string]any{
+			"open": db.Stat().AcquiredConns(),
+			"idle": db.Stat().IdleConns(),
+			"wait": db.Stat().NewConnsCount(),
+		}
+	}))
+
+	// Publish the current Unix timestamp.
+	expvar.Publish("timestamp", expvar.Func(func() any {
+		return time.Now().Unix()
+	}))
 
 	app := &application{
 		config: cfg,
@@ -118,23 +141,23 @@ func main() {
 	}
 }
 
-func openDB(cfg config, logger *slog.Logger) (*pgx.Conn, error) {
-	connConfig, err := pgx.ParseConfig(cfg.db.dsn)
+func openDB(cfg config, logger *slog.Logger) (*pgxpool.Pool, error) {
+	poolConfig, err := pgxpool.ParseConfig(cfg.db.dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := pgx.ConnectConfig(context.Background(), connConfig)
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	err = conn.Ping(context.Background())
+	err = pool.Ping(context.Background())
 	if err != nil {
-		conn.Close(context.Background())
+		pool.Close()
 		return nil, err
 	}
 
 	logger.Info("db connected", "dsn", cfg.db.dsn)
-	return conn, nil
+	return pool, nil
 }

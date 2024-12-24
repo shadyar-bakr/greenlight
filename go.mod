@@ -6,7 +6,12 @@ require github.com/julienschmidt/httprouter v1.3.0
 
 require golang.org/x/time v0.8.0
 
-require gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
+require (
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	golang.org/x/sync v0.10.0 // indirect
+	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
+	gopkg.in/mail.v2 v2.3.1 // indirect
+)
 
 require (
 	github.com/go-mail/mail v2.3.1+incompatible

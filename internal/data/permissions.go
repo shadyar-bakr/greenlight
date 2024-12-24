@@ -5,13 +5,13 @@ import (
 	"slices"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Permissions []string
 
 type PermissionsModel struct {
-	DB *pgx.Conn
+	Pool *pgxpool.Pool
 }
 
 func (p Permissions) Include(code string) bool {
@@ -29,7 +29,7 @@ func (m PermissionsModel) GetAllForUser(userID int64) (Permissions, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rows, err := m.DB.Query(ctx, query, userID)
+	rows, err := m.Pool.Query(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +63,6 @@ func (m PermissionsModel) AddForUser(userID int64, codes ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err := m.DB.Exec(ctx, query, userID, codes)
+	_, err := m.Pool.Exec(ctx, query, userID, codes)
 	return err
 }

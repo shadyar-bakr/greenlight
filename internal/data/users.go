@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shadyar-bakr/greenlight/internal/validator"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -42,7 +43,7 @@ var (
 )
 
 type UserModel struct {
-	DB *pgx.Conn
+	Pool *pgxpool.Pool
 }
 
 func ValidateEmail(v *validator.Validator, email string) {
@@ -104,7 +105,7 @@ func (m UserModel) Insert(ctx context.Context, user *User) error {
 
 	args := []any{user.Name, user.Email, user.Password.Hash, user.Activated}
 
-	err := m.DB.QueryRow(ctx, query, args...).Scan(&user.ID, &user.CreatedAt, &user.Version)
+	err := m.Pool.QueryRow(ctx, query, args...).Scan(&user.ID, &user.CreatedAt, &user.Version)
 	if err != nil {
 		switch {
 		case err.Error() == `pq: duplicate key value violates unique constraint "users_email_key"`:
@@ -126,7 +127,7 @@ func (m UserModel) GetByEmail(ctx context.Context, email string) (*User, error) 
 
 	var user User
 
-	err := m.DB.QueryRow(ctx, query, email).Scan(
+	err := m.Pool.QueryRow(ctx, query, email).Scan(
 		&user.ID,
 		&user.CreatedAt,
 		&user.Name,
@@ -158,7 +159,7 @@ func (m UserModel) Update(ctx context.Context, user *User) error {
 
 	args := []any{user.Name, user.Email, user.Password.Hash, user.Activated, user.ID, user.Version}
 
-	err := m.DB.QueryRow(ctx, query, args...).Scan(&user.Version)
+	err := m.Pool.QueryRow(ctx, query, args...).Scan(&user.Version)
 	if err != nil {
 		switch {
 		case err.Error() == `pq: duplicate key value violates unique constraint "users_email_key"`:
@@ -187,7 +188,7 @@ func (m UserModel) GetForToken(ctx context.Context, scope string, tokenPlaintext
 	var user User
 
 	// Use the hashed token value in the query
-	err := m.DB.QueryRow(ctx, query, tokenHash[:], scope).Scan(
+	err := m.Pool.QueryRow(ctx, query, tokenHash[:], scope).Scan(
 		&user.ID,
 		&user.CreatedAt,
 		&user.Name,
