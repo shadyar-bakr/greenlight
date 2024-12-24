@@ -4,8 +4,12 @@ meta {
   seq: 1
 }
 
-get {
+delete {
   url: {{BASE}}movies/4
   body: none
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: 3PK3FTEV5R4KGYW2FTVT7WM5JQ
 }
