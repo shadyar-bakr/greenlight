@@ -13,18 +13,21 @@ import (
 func (app *application) routes() http.Handler {
 	r := chi.NewRouter()
 
-	// Global middleware
+	// Core middleware - order is important
+	r.Use(app.tracing)         // Should be first to trace everything
+	r.Use(app.securityHeaders) // Add security headers early
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Use(middleware.Heartbeat("/ping"))
 	r.Use(middleware.CleanPath)
 	r.Use(middleware.GetHead)
+	r.Use(middleware.Compress(5)) // Add compression for responses
 
-	// Custom middleware
+	// Application middleware
 	r.Use(app.metrics)
+	r.Use(app.validateRequest)
 	r.Use(app.rateLimit)
 	r.Use(app.authenticate)
 
@@ -32,8 +35,8 @@ func (app *application) routes() http.Handler {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   app.config.cors.trustedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"},
+		ExposedHeaders:   []string{"Link", "X-Request-ID"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -41,23 +44,39 @@ func (app *application) routes() http.Handler {
 	r.NotFound(app.notFoundResponse)
 	r.MethodNotAllowed(app.methodNotAllowedResponse)
 
+	// Health check endpoints with rate limiting exemption
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.NoCache)
+		r.Use(middleware.Throttle(1000)) // Higher limit for health checks
+		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("pong"))
+		})
+		r.Get("/health", app.healthcheckHandler)
+	})
+
 	// API routes
 	r.Route("/v1", func(r chi.Router) {
-		// Public routes
-		r.Get("/healthcheck", app.healthcheckHandler)
-		r.Post("/users", app.registerUserHandler)
-		r.Put("/users/activated", app.activateUserHandler)
-		r.Post("/tokens/authentication", app.createAuthenticationTokenHandler)
 
-		// Protected routes
+		// Public routes with specific rate limits
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Throttle(100)) // Lower limit for public endpoints
+			r.Post("/users", app.registerUserHandler)
+			r.Put("/users/activated", app.activateUserHandler)
+			r.Post("/tokens/authentication", app.createAuthenticationTokenHandler)
+		})
+
+		// Protected routes - movies
 		r.Group(func(r chi.Router) {
 			r.Use(app.requirePermission("movies:read"))
+			r.Use(middleware.Throttle(200)) // Medium limit for read operations
 			r.Get("/movies", app.listMoviesHandler)
 			r.Get("/movies/{id}", app.showMovieHandler)
 		})
 
+		// Protected routes - movies
 		r.Group(func(r chi.Router) {
 			r.Use(app.requirePermission("movies:write"))
+			r.Use(middleware.Throttle(50)) // Lower limit for write operations
 			r.Post("/movies", app.createMovieHandler)
 			r.Patch("/movies/{id}", app.updateMovieHandler)
 			r.Delete("/movies/{id}", app.deleteMovieHandler)
@@ -66,8 +85,14 @@ func (app *application) routes() http.Handler {
 
 	// Debug routes
 	if app.config.env == "development" {
-		r.Mount("/debug", middleware.Profiler())
-		r.Get("/debug/vars", expvar.Handler().ServeHTTP)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.NoCache)
+			r.Use(middleware.BasicAuth("Greenlight API", map[string]string{
+				"admin": "development", // In production, use secure credentials
+			}))
+			r.Mount("/debug", middleware.Profiler())
+			r.Get("/debug/vars", expvar.Handler().ServeHTTP)
+		})
 	}
 
 	return r
