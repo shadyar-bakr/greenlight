@@ -5,7 +5,8 @@ go 1.23.4
 require github.com/julienschmidt/httprouter v1.3.0
 
 require (
-	github.com/tomasen/realip v0.0.0-20180522021738-f0c99a92ddce
+	github.com/go-chi/chi/v5 v5.2.0
+	github.com/go-chi/cors v1.2.1
 	golang.org/x/time v0.8.0
 )
 

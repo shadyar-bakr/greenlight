@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"expvar"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/shadyar-bakr/greenlight/internal/data"
 	"github.com/shadyar-bakr/greenlight/internal/validator"
-	"github.com/tomasen/realip"
 	"golang.org/x/time/rate"
 )
 
@@ -22,19 +20,6 @@ type client struct {
 }
 
 const cleanup = time.Minute * 5
-
-func (app *application) recoverPanic(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if err := recover(); err != nil {
-				w.Header().Set("Connection", "close")
-				app.serverErrorResponse(w, r, fmt.Errorf("%s", err))
-			}
-		}()
-
-		next.ServeHTTP(w, r)
-	})
-}
 
 func (app *application) rateLimit(next http.Handler) http.Handler {
 	var (
@@ -62,10 +47,13 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 			return
 		}
 
-		ip := realip.FromRequest(r)
+		// Get real IP from X-Real-IP or X-Forwarded-For header
+		ip := r.Header.Get("X-Real-IP")
 		if ip == "" {
-			app.serverErrorResponse(w, r, errors.New("invalid ip"))
-			return
+			ip = r.Header.Get("X-Forwarded-For")
+			if ip == "" {
+				ip = r.RemoteAddr
+			}
 		}
 
 		mu.Lock()
@@ -137,7 +125,7 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 	})
 }
 
-func (app *application) requireAuthenticatedUser(next http.HandlerFunc) http.HandlerFunc {
+func (app *application) requireAuthenticatedUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := app.contextGetUser(r)
 
@@ -150,7 +138,7 @@ func (app *application) requireAuthenticatedUser(next http.HandlerFunc) http.Han
 	})
 }
 
-func (app *application) requireActivatedUser(next http.HandlerFunc) http.HandlerFunc {
+func (app *application) requireActivatedUser(next http.Handler) http.Handler {
 	fn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := app.contextGetUser(r)
 
@@ -165,51 +153,27 @@ func (app *application) requireActivatedUser(next http.HandlerFunc) http.Handler
 	return app.requireAuthenticatedUser(fn)
 }
 
-func (app *application) requirePermission(code string, next http.HandlerFunc) http.HandlerFunc {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		user := app.contextGetUser(r)
+func (app *application) requirePermission(code string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := app.contextGetUser(r)
 
-		permissions, err := app.models.Permissions.GetAllForUser(user.ID)
-		if err != nil {
-			app.serverErrorResponse(w, r, err)
-			return
-		}
-
-		if !permissions.Include(code) {
-			app.notPermittedResponse(w, r)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	}
-
-	return app.requireActivatedUser(fn)
-}
-
-func (app *application) enableCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Vary", "Origin")
-		w.Header().Add("Vary", "Access-Control-Request-Method")
-
-		origin := r.Header.Get("Origin")
-
-		if origin != "" {
-			for i := range app.config.cors.trustedOrigins {
-				if origin == app.config.cors.trustedOrigins[i] {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
-						w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, PUT, PATCH, DELETE")
-						w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-						w.WriteHeader(http.StatusOK)
-						return
-					}
-					break
-				}
+			permissions, err := app.models.Permissions.GetAllForUser(user.ID)
+			if err != nil {
+				app.serverErrorResponse(w, r, err)
+				return
 			}
-		}
 
-		next.ServeHTTP(w, r)
-	})
+			if !permissions.Include(code) {
+				app.notPermittedResponse(w, r)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+
+		return app.requireActivatedUser(fn)
+	}
 }
 
 type metricsResponseWriter struct {
@@ -227,7 +191,6 @@ func newMetricsResponseWriter(w http.ResponseWriter) *metricsResponseWriter {
 
 func (mw *metricsResponseWriter) WriteHeader(statusCode int) {
 	mw.ResponseWriter.WriteHeader(statusCode)
-
 	if !mw.headerWritten {
 		mw.statusCode = statusCode
 		mw.headerWritten = true
@@ -248,35 +211,16 @@ func (app *application) metrics(next http.Handler) http.Handler {
 		totalRequestsReceived           = expvar.NewInt("total_requests_received")
 		totalResponsesSent              = expvar.NewInt("total_responses_sent")
 		totalProcessingTimeMicroseconds = expvar.NewInt("total_processing_time_μs")
-
-		// Declare a new expvar map to hold the count of responses for each HTTP status
-		// code.
-		totalResponsesSentByStatus = expvar.NewMap("total_responses_sent_by_status")
+		totalResponsesSentByStatus      = expvar.NewMap("total_responses_sent_by_status")
 	)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-
 		totalRequestsReceived.Add(1)
-
-		// Create a new metricsResponseWriter, which wraps the original
-		// http.ResponseWriter value that the metrics middleware received.
 		mw := newMetricsResponseWriter(w)
-
-		// Call the next handler in the chain using the new metricsResponseWriter
-		// as the http.ResponseWriter value.
 		next.ServeHTTP(mw, r)
-
 		totalResponsesSent.Add(1)
-
-		// At this point, the response status code should be stored in the
-		// mw.statusCode field. Note that the expvar map is string-keyed, so we
-		// need to use the strconv.Itoa() function to convert the status code
-		// (which is an integer) to a string. Then we use the Add() method on
-		// our new totalResponsesSentByStatus map to increment the count for the
-		// given status code by 1.
 		totalResponsesSentByStatus.Add(strconv.Itoa(mw.statusCode), 1)
-
 		duration := time.Since(start).Microseconds()
 		totalProcessingTimeMicroseconds.Add(duration)
 	})
