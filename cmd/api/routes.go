@@ -18,7 +18,10 @@ func (app *application) routes() http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(middleware.Heartbeat("/ping"))
+	r.Use(middleware.CleanPath)
+	r.Use(middleware.GetHead)
 
 	// Custom middleware
 	r.Use(app.metrics)
@@ -38,32 +41,34 @@ func (app *application) routes() http.Handler {
 	r.NotFound(app.notFoundResponse)
 	r.MethodNotAllowed(app.methodNotAllowedResponse)
 
-	// healthcheck
-	r.Get("/v1/healthcheck", app.healthcheckHandler)
+	// API routes
+	r.Route("/v1", func(r chi.Router) {
+		// Public routes
+		r.Get("/healthcheck", app.healthcheckHandler)
+		r.Post("/users", app.registerUserHandler)
+		r.Put("/users/activated", app.activateUserHandler)
+		r.Post("/tokens/authentication", app.createAuthenticationTokenHandler)
 
-	// movies routes with permissions
-	r.Group(func(r chi.Router) {
-		r.Use(app.requirePermission("movies:read"))
-		r.Get("/v1/movies/{id}", app.showMovieHandler)
-		r.Get("/v1/movies", app.listMoviesHandler)
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(app.requirePermission("movies:read"))
+			r.Get("/movies", app.listMoviesHandler)
+			r.Get("/movies/{id}", app.showMovieHandler)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(app.requirePermission("movies:write"))
+			r.Post("/movies", app.createMovieHandler)
+			r.Patch("/movies/{id}", app.updateMovieHandler)
+			r.Delete("/movies/{id}", app.deleteMovieHandler)
+		})
 	})
 
-	r.Group(func(r chi.Router) {
-		r.Use(app.requirePermission("movies:write"))
-		r.Post("/v1/movies", app.createMovieHandler)
-		r.Patch("/v1/movies/{id}", app.updateMovieHandler)
-		r.Delete("/v1/movies/{id}", app.deleteMovieHandler)
-	})
-
-	// users
-	r.Post("/v1/users", app.registerUserHandler)
-	r.Put("/v1/users/activated", app.activateUserHandler)
-
-	// tokens
-	r.Post("/v1/tokens/authentication", app.createAuthenticationTokenHandler)
-
-	// metrics
-	r.Handle("/debug/vars", expvar.Handler())
+	// Debug routes
+	if app.config.env == "development" {
+		r.Mount("/debug", middleware.Profiler())
+		r.Get("/debug/vars", expvar.Handler().ServeHTTP)
+	}
 
 	return r
 }

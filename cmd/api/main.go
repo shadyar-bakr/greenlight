@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"expvar"
 	"flag"
 	"fmt"
@@ -94,7 +95,21 @@ func main() {
 		os.Exit(0)
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+		AddSource: true,
+	}))
+
+	if err := cfg.validate(); err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 
 	db, err := openDB(cfg, logger)
 	if err != nil {
@@ -169,4 +184,40 @@ func openDB(cfg config, logger *slog.Logger) (*pgxpool.Pool, error) {
 
 	logger.Info("db connected", "dsn", cfg.db.dsn)
 	return pool, nil
+}
+
+func (cfg *config) validate() error {
+	if cfg.port < 1 || cfg.port > 65535 {
+		return fmt.Errorf("invalid port number: %d", cfg.port)
+	}
+
+	if cfg.env != "development" && cfg.env != "staging" && cfg.env != "production" {
+		return fmt.Errorf("invalid environment: %s", cfg.env)
+	}
+
+	if cfg.db.dsn == "" {
+		return errors.New("database DSN is required")
+	}
+
+	if cfg.smtp.host == "" {
+		return errors.New("SMTP host is required")
+	}
+
+	if cfg.smtp.port < 1 || cfg.smtp.port > 65535 {
+		return fmt.Errorf("invalid SMTP port number: %d", cfg.smtp.port)
+	}
+
+	if cfg.smtp.username == "" {
+		return errors.New("SMTP username is required")
+	}
+
+	if cfg.smtp.password == "" {
+		return errors.New("SMTP password is required")
+	}
+
+	if cfg.smtp.sender == "" {
+		return errors.New("SMTP sender is required")
+	}
+
+	return nil
 }
