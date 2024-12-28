@@ -17,6 +17,7 @@ type Models struct {
 	Tokens              TokenModel
 	Users               UserModel
 	ResourcePermissions ResourcePermissionModel
+	Roles               RoleModel
 }
 
 func NewModels(pool *pgxpool.Pool) Models {
@@ -26,5 +27,6 @@ func NewModels(pool *pgxpool.Pool) Models {
 		Tokens:              TokenModel{Pool: pool},
 		Users:               UserModel{Pool: pool},
 		ResourcePermissions: ResourcePermissionModel{Pool: pool},
+		Roles:               RoleModel{Pool: pool},
 	}
 }

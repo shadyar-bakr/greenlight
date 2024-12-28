@@ -88,6 +88,25 @@ func (app *application) routes() http.Handler {
 				r.Patch("/", app.updateMovieHandler)
 				r.Delete("/", app.deleteMovieHandler)
 			})
+
+			// Role management routes - admin only
+			r.Group(func(r chi.Router) {
+				r.Use(app.requirePermission("roles:write"))
+				r.Use(middleware.Throttle(50)) // Lower limit for write operations
+
+				// Role CRUD operations
+				r.Post("/roles", app.createRoleHandler)
+				r.Get("/roles", app.listRolesHandler)
+				r.Get("/roles/{id}", app.showRoleHandler)
+				r.Patch("/roles/{id}", app.updateRoleHandler)
+				r.Delete("/roles/{id}", app.deleteRoleHandler)
+
+				// Role assignments
+				r.Post("/roles/assign", app.assignRoleHandler)
+				r.Post("/roles/unassign", app.unassignRoleHandler)
+				r.Get("/users/{id}/roles", app.listUserRolesHandler)
+				r.Get("/roles/{id}/permissions", app.listRolePermissionsHandler)
+			})
 		})
 	})
 
