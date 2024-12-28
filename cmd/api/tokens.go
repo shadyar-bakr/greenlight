@@ -61,17 +61,75 @@ func (app *application) createAuthenticationTokenHandler(w http.ResponseWriter, 
 		return
 	}
 
-	// Otherwise, if the password is correct, we generate a new token with a 24-hour
-	// expiry time and the scope 'authentication'.
-	token, err := app.models.Tokens.New(user.ID, 24*time.Hour, data.ScopeAuthentication)
+	// Generate both access and refresh tokens
+	accessToken, refreshToken, err := app.models.Tokens.NewPair(user.ID, 15*time.Minute, 24*time.Hour)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
-	// Encode the token to JSON and send it in the response along with a 201 Created
-	// status code.
-	err = app.writeJSON(w, http.StatusCreated, envelope{"authentication_token": token}, nil)
+	// Return both tokens in the response
+	err = app.writeJSON(w, http.StatusCreated, envelope{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+}
+
+func (app *application) refreshTokenHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	err := app.readJSON(w, r, &input)
+	if err != nil {
+		app.badRequestResponse(w, r, err)
+		return
+	}
+
+	v := validator.New()
+	data.ValidateTokenPlaintext(v, input.RefreshToken)
+
+	if !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	// Verify and get the refresh token
+	refreshToken, err := app.models.Tokens.GetRefreshToken(input.RefreshToken)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrInvalidToken):
+			app.invalidAuthenticationTokenResponse(w, r)
+		case errors.Is(err, data.ErrExpiredToken):
+			app.expiredAuthenticationTokenResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	// Generate a new token pair
+	accessToken, newRefreshToken, err := app.models.Tokens.NewPair(refreshToken.UserID, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	// Delete the old refresh token
+	err = app.models.Tokens.DeleteAllForUser(data.ScopeRefresh, refreshToken.UserID)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	// Return the new token pair
+	err = app.writeJSON(w, http.StatusOK, envelope{
+		"access_token":  accessToken,
+		"refresh_token": newRefreshToken,
+	}, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 	}
