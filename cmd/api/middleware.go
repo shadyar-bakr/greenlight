@@ -326,7 +326,7 @@ func (app *application) validateRequest(next http.Handler) http.Handler {
 		// Validate request size for non-GET/HEAD requests
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if r.ContentLength > 1_048_576 { // 1MB
-				app.errorResponse(w, r, http.StatusRequestEntityTooLarge, "request body too large")
+				app.errorResponse(w, r, http.StatusRequestEntityTooLarge, ERRCODE_REQUEST_TOO_LARGE, "request body too large", nil)
 				return
 			}
 		}
@@ -335,7 +335,7 @@ func (app *application) validateRequest(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/v1") {
 			accept := r.Header.Get("Accept")
 			if accept != "" && accept != "*/*" && !strings.Contains(accept, "application/json") {
-				app.errorResponse(w, r, http.StatusNotAcceptable, "content type not acceptable")
+				app.errorResponse(w, r, http.StatusNotAcceptable, ERRCODE_NOT_ACCEPTABLE, "content type not acceptable", nil)
 				return
 			}
 		}
@@ -344,7 +344,7 @@ func (app *application) validateRequest(next http.Handler) http.Handler {
 		if r.ContentLength > 0 {
 			contentType := r.Header.Get("Content-Type")
 			if contentType != "application/json" {
-				app.errorResponse(w, r, http.StatusUnsupportedMediaType, "content type not supported")
+				app.errorResponse(w, r, http.StatusUnsupportedMediaType, ERRCODE_UNSUPPORTED_MEDIA, "content type not supported", nil)
 				return
 			}
 		}
