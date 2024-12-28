@@ -302,44 +302,85 @@ func (app *application) validateRequest(next http.Handler) http.Handler {
 
 func (app *application) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Security headers based on OWASP recommendations
 		headers := w.Header()
 
 		// Prevent MIME-sniffing
 		headers.Set("X-Content-Type-Options", "nosniff")
 
-		// XSS protection
+		// XSS protection - Note: Modern browsers use CSP instead, but this is for older browsers
 		headers.Set("X-XSS-Protection", "1; mode=block")
 
 		// Frame options to prevent clickjacking
 		headers.Set("X-Frame-Options", "DENY")
 
-		// Strict Transport Security
+		// Strict Transport Security with preload
 		if app.config.env == "production" {
-			headers.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			headers.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}
 
-		// Content Security Policy
-		headers.Set("Content-Security-Policy",
-			"default-src 'none'; "+
-				"script-src 'self'; "+
-				"style-src 'self'; "+
-				"img-src 'self'; "+
-				"connect-src 'self'")
+		// Enhanced Content Security Policy
+		csp := []string{
+			"default-src 'none'",                 // Deny everything by default
+			"script-src 'self'",                  // Allow scripts from same origin
+			"style-src 'self'",                   // Allow styles from same origin
+			"img-src 'self' data:",               // Allow images from same origin and data URIs
+			"font-src 'self'",                    // Allow fonts from same origin
+			"connect-src 'self'",                 // Allow XHR/WebSocket/Fetch to same origin
+			"form-action 'self'",                 // Restrict form submissions to same origin
+			"frame-ancestors 'none'",             // Prevent site from being embedded (similar to X-Frame-Options)
+			"base-uri 'none'",                    // Prevent injection of base tags
+			"require-trusted-types-for 'script'", // Enforce Trusted Types for script execution
+			"upgrade-insecure-requests",          // Upgrade HTTP requests to HTTPS
+		}
+		headers.Set("Content-Security-Policy", strings.Join(csp, "; "))
 
-		// Referrer Policy
-		headers.Set("Referrer-Policy", "same-origin")
+		// Referrer Policy - only send origin as referrer
+		headers.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-		// Permissions Policy
-		headers.Set("Permissions-Policy",
-			"accelerometer=(), "+
-				"camera=(), "+
-				"geolocation=(), "+
-				"gyroscope=(), "+
-				"magnetometer=(), "+
-				"microphone=(), "+
-				"payment=(), "+
-				"usb=()")
+		// Permissions Policy (formerly Feature-Policy)
+		permissions := []string{
+			"accelerometer=()",
+			"ambient-light-sensor=()",
+			"autoplay=()",
+			"battery=()",
+			"camera=()",
+			"display-capture=()",
+			"document-domain=()",
+			"encrypted-media=()",
+			"execution-while-not-rendered=()",
+			"execution-while-out-of-viewport=()",
+			"fullscreen=(self)",
+			"geolocation=()",
+			"gyroscope=()",
+			"keyboard-map=()",
+			"magnetometer=()",
+			"microphone=()",
+			"midi=()",
+			"navigation-override=()",
+			"payment=()",
+			"picture-in-picture=()",
+			"publickey-credentials-get=()",
+			"screen-wake-lock=()",
+			"sync-xhr=()",
+			"usb=()",
+			"web-share=()",
+			"xr-spatial-tracking=()",
+		}
+		headers.Set("Permissions-Policy", strings.Join(permissions, ", "))
+
+		// Cross-Origin-Embedder-Policy - require corp
+		headers.Set("Cross-Origin-Embedder-Policy", "require-corp")
+
+		// Cross-Origin-Opener-Policy - same origin
+		headers.Set("Cross-Origin-Opener-Policy", "same-origin")
+
+		// Cross-Origin-Resource-Policy - same origin
+		headers.Set("Cross-Origin-Resource-Policy", "same-origin")
+
+		// Clear-Site-Data header for logout/error endpoints
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/logout") {
+			headers.Set("Clear-Site-Data", "\"cache\", \"cookies\", \"storage\"")
+		}
 
 		next.ServeHTTP(w, r)
 	})
