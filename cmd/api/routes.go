@@ -107,6 +107,22 @@ func (app *application) routes() http.Handler {
 				r.Get("/users/{id}/roles", app.listUserRolesHandler)
 				r.Get("/roles/{id}/permissions", app.listRolePermissionsHandler)
 			})
+
+			// Trusted client management routes - admin only
+			r.Group(func(r chi.Router) {
+				r.Use(app.requirePermission("trusted-clients:write"))
+				r.Use(middleware.Throttle(50)) // Lower limit for write operations
+
+				// Trusted client CRUD operations
+				r.Post("/trusted-clients", app.createTrustedClientHandler)
+				r.Get("/trusted-clients", app.listTrustedClientsHandler)
+				r.Get("/trusted-clients/{id}", app.showTrustedClientHandler)
+				r.Patch("/trusted-clients/{id}", app.updateTrustedClientHandler)
+				r.Delete("/trusted-clients/{id}", app.deleteTrustedClientHandler)
+
+				// API key management
+				r.Post("/trusted-clients/{id}/regenerate-key", app.regenerateAPIKeyHandler)
+			})
 		})
 	})
 

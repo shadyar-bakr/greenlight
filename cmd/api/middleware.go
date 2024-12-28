@@ -89,12 +89,14 @@ func (app *application) metrics(next http.Handler) http.Handler {
 
 func (app *application) rateLimit(next http.Handler) http.Handler {
 	type client struct {
-		limiter *rate.Limiter
-
+		limiter  *rate.Limiter
 		lastSeen time.Time
 	}
 
-	var clients sync.Map
+	var (
+		mu      sync.RWMutex
+		clients = make(map[string]*client)
+	)
 
 	// Background cleanup using ticker
 	go func() {
@@ -102,14 +104,13 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			now := time.Now()
-			clients.Range(func(key, value interface{}) bool {
-				client := value.(*client)
-				if now.Sub(client.lastSeen) > app.config.limiter.cleanup {
-					clients.Delete(key)
+			mu.Lock()
+			for ip, client := range clients {
+				if time.Since(client.lastSeen) > app.config.limiter.cleanup {
+					delete(clients, ip)
 				}
-				return true
-			})
+			}
+			mu.Unlock()
 		}
 	}()
 
@@ -119,20 +120,72 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 			return
 		}
 
-		ip := middleware.GetReqID(r.Context())
-		if ip == "" {
-			ip = r.RemoteAddr
+		// Check for API key in header
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey != "" {
+			trustedClient, err := app.models.TrustedClients.GetByAPIKey(apiKey)
+			if err == nil && trustedClient.Enabled {
+				// Use client-specific rate limits
+				mu.RLock()
+				clientInfo, exists := clients[apiKey]
+				mu.RUnlock()
+
+				if !exists {
+					clientInfo = &client{
+						limiter: rate.NewLimiter(rate.Limit(trustedClient.RateLimitRPS), trustedClient.RateLimitBurst),
+					}
+					mu.Lock()
+					clients[apiKey] = clientInfo
+					mu.Unlock()
+				}
+
+				clientInfo.lastSeen = time.Now()
+
+				if !clientInfo.limiter.Allow() {
+					app.rateLimitExceededResponse(w, r)
+					return
+				}
+
+				// Log the request for auditing
+				app.background(func() {
+					err := app.models.TrustedClients.LogRequest(
+						trustedClient.ID,
+						r.URL.Path,
+						r.Method,
+						http.StatusOK,
+					)
+					if err != nil {
+						app.logger.Error(err.Error())
+					}
+				})
+
+				next.ServeHTTP(w, r)
+				return
+			}
 		}
 
-		value, _ := clients.LoadOrStore(ip, &client{
-			limiter:  rate.NewLimiter(rate.Limit(app.config.limiter.rps), app.config.limiter.burst),
-			lastSeen: time.Now(),
-		})
+		// Default rate limiting for regular clients
+		ip := r.RemoteAddr
+		if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+			ip = realIP
+		}
 
-		currentClient := value.(*client)
-		currentClient.lastSeen = time.Now()
+		mu.RLock()
+		clientInfo, exists := clients[ip]
+		mu.RUnlock()
 
-		if !currentClient.limiter.Allow() {
+		if !exists {
+			clientInfo = &client{
+				limiter: rate.NewLimiter(rate.Limit(app.config.limiter.rps), app.config.limiter.burst),
+			}
+			mu.Lock()
+			clients[ip] = clientInfo
+			mu.Unlock()
+		}
+
+		clientInfo.lastSeen = time.Now()
+
+		if !clientInfo.limiter.Allow() {
 			app.rateLimitExceededResponse(w, r)
 			return
 		}
