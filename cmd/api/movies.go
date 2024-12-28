@@ -53,6 +53,22 @@ func (app *application) createMovieHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Grant resource-level permissions to the creator
+	user := app.contextGetUser(r)
+	resourcePermission := &data.ResourcePermission{
+		UserID:       user.ID,
+		ResourceType: "movie",
+		ResourceID:   movie.ID,
+		Permission:   "movies:write",
+		GrantedBy:    &user.ID,
+	}
+
+	err = app.models.ResourcePermissions.Grant(resourcePermission)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
 	headers := make(http.Header)
 	headers.Set("Location", fmt.Sprintf("/v1/movies/%d", movie.ID))
 

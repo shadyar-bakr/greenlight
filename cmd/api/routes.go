@@ -66,7 +66,7 @@ func (app *application) routes() http.Handler {
 			r.Post("/tokens/refresh", app.refreshTokenHandler)
 		})
 
-		// Protected routes - movies
+		// Protected routes - movies read
 		r.Group(func(r chi.Router) {
 			r.Use(app.requirePermission("movies:read"))
 			r.Use(middleware.Throttle(200)) // Medium limit for read operations
@@ -74,13 +74,20 @@ func (app *application) routes() http.Handler {
 			r.Get("/movies/{id}", app.showMovieHandler)
 		})
 
-		// Protected routes - movies
+		// Protected routes - movies write
 		r.Group(func(r chi.Router) {
 			r.Use(app.requirePermission("movies:write"))
 			r.Use(middleware.Throttle(50)) // Lower limit for write operations
 			r.Post("/movies", app.createMovieHandler)
-			r.Patch("/movies/{id}", app.updateMovieHandler)
-			r.Delete("/movies/{id}", app.deleteMovieHandler)
+
+			// Update and delete require resource-level permissions
+			r.Route("/movies/{id}", func(r chi.Router) {
+				r.Use(func(next http.Handler) http.Handler {
+					return app.requireResourcePermission("movie", "movies:write", app.readIDParam)(next)
+				})
+				r.Patch("/", app.updateMovieHandler)
+				r.Delete("/", app.deleteMovieHandler)
+			})
 		})
 	})
 

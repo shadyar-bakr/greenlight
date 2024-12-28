@@ -433,3 +433,43 @@ func (app *application) tracing(next http.Handler) http.Handler {
 		)
 	})
 }
+
+// requireResourcePermission creates a middleware that checks if a user has permission for a specific resource
+func (app *application) requireResourcePermission(resourceType string, permission string, getResourceID func(*http.Request) (int64, error)) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := app.contextGetUser(r)
+
+			// Get the resource ID using the provided function
+			resourceID, err := getResourceID(r)
+			if err != nil {
+				app.badRequestResponse(w, r, err)
+				return
+			}
+
+			// Check if user has the required permission for this resource
+			hasPermission, err := app.models.ResourcePermissions.HasPermission(user.ID, resourceType, resourceID, permission)
+			if err != nil {
+				app.serverErrorResponse(w, r, err)
+				return
+			}
+
+			if !hasPermission {
+				// Check if user has global permission for this action
+				permissions, err := app.models.Permissions.GetAllForUser(user.ID)
+				if err != nil {
+					app.serverErrorResponse(w, r, err)
+					return
+				}
+
+				// If user doesn't have global permission either, return not permitted
+				if !permissions.Include(permission) {
+					app.notPermittedResponse(w, r)
+					return
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
