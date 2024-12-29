@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS movies (
     id bigserial PRIMARY KEY,  
     created_at timestamp(0) with time zone NOT NULL DEFAULT NOW(),
@@ -8,6 +10,21 @@ CREATE TABLE IF NOT EXISTS movies (
     version integer NOT NULL DEFAULT 1
 );
 
+-- Add movie constraints
+ALTER TABLE movies ADD CONSTRAINT movies_runtime_check CHECK (runtime >= 0);
+ALTER TABLE movies ADD CONSTRAINT movies_year_check CHECK (year BETWEEN 1888 AND date_part('year', now()));
+ALTER TABLE movies ADD CONSTRAINT genres_length_check CHECK (array_length(genres, 1) BETWEEN 1 AND 5);
+
+-- Add movie indexes
+CREATE INDEX IF NOT EXISTS movies_title_idx ON movies USING GIN (to_tsvector('simple', title));
+CREATE INDEX IF NOT EXISTS movies_genres_idx ON movies USING GIN (genres);
+
+COMMIT;
+
 ---- create above / drop below ----
 
-DROP TABLE IF EXISTS movies;
+BEGIN;
+
+DROP TABLE IF EXISTS movies CASCADE;
+
+COMMIT;

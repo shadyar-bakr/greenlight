@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS resource_permissions (
     id bigserial PRIMARY KEY,
     user_id bigint NOT NULL REFERENCES users ON DELETE CASCADE,
@@ -12,6 +14,12 @@ CREATE TABLE IF NOT EXISTS resource_permissions (
 CREATE INDEX IF NOT EXISTS resource_permissions_user_idx ON resource_permissions(user_id);
 CREATE INDEX IF NOT EXISTS resource_permissions_resource_idx ON resource_permissions(resource_type, resource_id);
 
+COMMIT;
+
 ---- create above / drop below ----
 
-DROP TABLE IF EXISTS resource_permissions; 
+BEGIN;
+
+DROP TABLE IF EXISTS resource_permissions CASCADE;
+
+COMMIT; 

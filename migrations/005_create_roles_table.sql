@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS roles (
     id bigserial PRIMARY KEY,
     name text NOT NULL UNIQUE,
@@ -28,14 +30,14 @@ CREATE INDEX IF NOT EXISTS roles_permissions_permission_idx ON roles_permissions
 CREATE INDEX IF NOT EXISTS users_roles_user_idx ON users_roles(user_id);
 CREATE INDEX IF NOT EXISTS users_roles_role_idx ON users_roles(role_id);
 
-INSERT INTO roles (name, description) VALUES
-    ('admin', 'System administrator with full access'),
-    ('manager', 'Content manager with write access'),
-    ('user', 'Regular user with read access')
-ON CONFLICT DO NOTHING;
+COMMIT;
 
 ---- create above / drop below ----
 
-DROP TABLE IF EXISTS users_roles;
-DROP TABLE IF EXISTS roles_permissions;
-DROP TABLE IF EXISTS roles; 
+BEGIN;
+
+DROP TABLE IF EXISTS users_roles CASCADE;
+DROP TABLE IF EXISTS roles_permissions CASCADE;
+DROP TABLE IF EXISTS roles CASCADE;
+
+COMMIT; 

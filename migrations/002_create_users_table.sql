@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -10,6 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
     version integer NOT NULL DEFAULT 1
 );
 
+COMMIT;
+
 ---- create above / drop below ----
 
-DROP TABLE IF EXISTS users;
+BEGIN;
+
+DROP TABLE IF EXISTS users CASCADE;
+DROP EXTENSION IF EXISTS citext;
+
+COMMIT; 
